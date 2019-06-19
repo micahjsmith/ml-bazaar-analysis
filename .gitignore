@@ -108,3 +108,4 @@ data/
 output/
 .idea/
 .DS_Store
+mongodb_config.json
