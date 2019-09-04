@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
-import os
+"""
+Generate the figures and results for the paper: "The Machine Learning Bazaar:
+Harnessing the ML Ecosystem for Effective System Development"
+"""
+
 import pathlib
 import shutil
 import sys
@@ -17,17 +21,17 @@ from pandas.core.common import SettingWithCopyWarning
 from explorer import get_explorer
 
 
+warnings.simplefilter('ignore', SettingWithCopyWarning)
+warnings.simplefilter('ignore', FutureWarning)
+
 ex = get_explorer()
 interactive = True
 
-sns.set(style='white')
+sns.set(context='paper', style='white', font='serif')
 
 root = pathlib.Path(__file__).parent.resolve()
 outputdir = root.joinpath('output')
 datadir = root.joinpath('data')
-
-warnings.simplefilter('ignore', SettingWithCopyWarning)
-warnings.simplefilter('ignore', FutureWarning)
 
 
 # ------------------------------------------------------------------------------
@@ -106,31 +110,28 @@ _METRIC_TYPES = {
     'rootMeanSquaredError': 'zero_inf_cost',
 }
 
+SCORE_MAPPING = {
+    'zero_one_score': lambda x, min, max: x,
+    'zero_one_cost': lambda x, min, max: x,
+    'ranged_score': lambda x, min, max: (x - min)/(max - min),
+    'real_score': lambda x, min, max: 1 / (1+np.exp(-x)),
+    'real_cost': lambda x, min, max: 1 - (1 / (1 + np.exp(-x))),
+    'zero_inf_score': lambda x, min, max: 1 / (1 + np.exp(-np.log10(x))),
+    'zero_inf_cost': lambda x, min, max: 1 - 1 / (1 + np.exp(-np.log10(
+        x))),
+}
 
-def _normalize(metric_type, min_value=None, max_value=None):
-    def f(raw):
-        if metric_type == 'zero_one_score':
-            return raw
-        elif metric_type == 'zero_one_cost':
-            return 1 - raw
-        elif metric_type == 'ranged_score':
-            return (raw - min_value) / (max_value - min_value)
-        elif metric_type == 'real_score':
-            return 1 / (1 + np.exp(-raw))
-        elif metric_type == 'real_cost':
-            return 1 - (1 / (1 + np.exp(-raw)))
-        elif metric_type == 'zero_inf_score':
-            return 1 / (1 + np.exp(-np.log10(raw)))
-        elif metric_type == 'zero_inf_cost':
-            return 1 - 1 / (1 + np.exp(-np.log10(raw)))
-        else:
-            raise ValueError('Unknown metric type')
-
-    return f
+def _make_normalizer(metric_type, min=None, max=None):
+    try:
+        f = SCORE_MAPPING[metric_type]
+    except KeyError:
+        raise ValueError('Unknown metric type: {}'.format(metric_type))
+    return funcy.rpartial(f, min, max)
 
 
-def _normalize_df(s, score_name='cv_score'):
-    return _normalize(_METRIC_TYPES[s['metric']])(s[score_name])
+def _normalize_df(df, score_name='cv_score'):
+    normalize = _make_normalizer(_METRIC_TYPES[df['metric']])
+    return normalize(df[score_name])
 
 
 def _add_tscores(df, score_name='score'):
@@ -154,7 +155,7 @@ def _get_tuning_results_df():
         .apply(default_score)
         .to_frame('default_score')
         .reset_index()
-        .rename(columns = {'name': 'template'})
+        .rename(columns={'name': 'template'})
         [lambda _df: ~_df['template'].str.contains('trivial')]
         .groupby('dataset')
         ['default_score']
@@ -166,7 +167,7 @@ def _get_tuning_results_df():
         df
         .groupby('dataset')
         .apply(min_max_score)
-        .rename(columns = {'min': 'min_score', 'max': 'max_score'})
+        .rename(columns={'min': 'min_score', 'max': 'max_score'})
     )
 
     sds = (
@@ -285,16 +286,26 @@ def make_figure_6():
         .rename(columns={'level_1': 'system'})
     )
 
-    with sns.plotting_context('paper', font_scale=1.5):
-        fig, ax = plt.subplots(figsize=(4, 8))
-        sns.barplot(x='score', y='problem', hue='system', data=data)
+    # specifically abbreviate 'uu3_world_development_indicators'
+    mask = data['problem'] == 'uu3_world_development_indicators'
+    data.loc[mask, 'problem'] = 'uu3_wdi'
 
-        ax.set_xticks([0.0, 0.5, 1.0])
-        ax.set_ylabel('')
+    with sns.plotting_context('paper'):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.barplot(x='problem', y='score', hue='system', data=data, ax=ax)
 
-        sns.despine()
+        ax.set_yticks([0.0, 0.5, 1.0])
+        ax.set_xlabel('')
+        plt.xticks(rotation=90)
+
+        sns.despine(left=True, bottom=True)
         plt.tight_layout()
         ax.get_legend().remove()
+
+        # color patches
+        for (_, b2) in funcy.partition(2, 2, sorted(ax.patches, key=lambda
+                o: o.get_x())):
+            b2.set_hatch('////')
 
         _savefig(fig, 'figure6', figdir=outputdir)
         if not interactive:
@@ -323,13 +334,15 @@ def make_figure_7():
 
     with sns.plotting_context('paper', font_scale=2.0):
         fig, ax = plt.subplots(figsize=(8, 3))
-        sns.distplot(delta)
+        sns.distplot(delta,
+                     hist_kws={'color': very_dark_gray},
+                     kde_kws={'lw': 3})
 
         ax.set_xlabel('standard deviations')
         ax.set_ylabel('density')
         ax.set_xlim(left=0, right=5)
 
-        sns.despine()
+        sns.despine(left=True, bottom=True)
         plt.tight_layout()
 
         _savefig(fig, 'figure7', figdir=outputdir)
@@ -417,8 +430,8 @@ def compute_npipelines_xgbrf_VI_B():
     total = npipelines_rf + npipelines_xgb
     result = pd.DataFrame(
         [npipelines_rf, npipelines_xgb, total],
-        index = ['RF', 'XGB', 'total'],
-        columns = ['pipelines']
+        index=['RF', 'XGB', 'total'],
+        columns=['pipelines']
     )
 
     fn = outputdir.joinpath('VI_B_npipelines_xgbrf.csv')
@@ -456,7 +469,7 @@ def compute_xgb_wins_pct_VI_B():
         .apply(np.argmax, axis=1)
         .value_counts()
         .to_frame('wins')
-        .assign(percent = lambda _df: _df['wins'] / np.sum(_df['wins']))
+        .assign(percent=lambda _df: _df['wins'] / np.sum(_df['wins']))
     )
 
     # add total
@@ -490,8 +503,8 @@ def compute_npipelines_maternse_VI_C():
     total = n_se_pipelines + n_matern_pipelines
     result = pd.DataFrame(
         [n_se_pipelines, n_matern_pipelines, total],
-        index = ['SE', 'Matern52', 'total'],
-        columns = ['pipelines']
+        index=['SE', 'Matern52', 'total'],
+        columns=['pipelines']
     )
 
     fn = outputdir.joinpath('VI_C_npipelines_sematern52.csv')
@@ -501,7 +514,11 @@ def compute_npipelines_maternse_VI_C():
 
 
 def compute_matern_wins_pct_VI_C():
-    """Compute the pct of tasks for which the best pipeline as tuned by GP-Matern52-EI beats the best pipeline as tuned by GP-SE-EI"""
+    """Compute matern wins pct
+
+    Compute the pct of tasks for which the best pipeline as tuned by
+    GP-Matern52-EI beats the best pipeline as tuned by GP-SE-EI.
+    """
     test_results_df = _get_test_results_df()
 
     gp_se_ei_results_df = (
@@ -529,7 +546,7 @@ def compute_matern_wins_pct_VI_C():
         .apply(np.argmax, axis=1)
         .value_counts()
         .to_frame('wins')
-        .assign(percent = lambda _df: _df['wins'] / np.sum(_df['wins']))
+        .assign(percent=lambda _df: _df['wins'] / np.sum(_df['wins']))
     )
 
     # add total
