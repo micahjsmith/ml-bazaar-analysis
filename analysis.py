@@ -10,16 +10,19 @@ import shutil
 import sys
 import types
 import warnings
+from contextlib import redirect_stderr, redirect_stdout
+from gc import get_referents
+from os import devnull
+from types import FunctionType, ModuleType
 
-import funcy
+import funcy as fy
 import matplotlib.pyplot as plt
+import mit_d3m.db
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from pandas.core.common import SettingWithCopyWarning
-
-from explorer import get_explorer
-
+from piex.explorer import MongoPipelineExplorer, S3PipelineExplorer
 
 warnings.simplefilter('ignore', SettingWithCopyWarning)
 warnings.simplefilter('ignore', FutureWarning)
@@ -29,9 +32,68 @@ interactive = True
 
 sns.set(context='paper', style='white', font='serif')
 
-root = pathlib.Path(__file__).parent.resolve()
-outputdir = root.joinpath('output')
-datadir = root.joinpath('data')
+ROOT = pathlib.Path(__file__).parent.resolve()
+OUTPUT_DIR = ROOT.joinpath('output')
+DATA_DIR = ROOT.joinpath('data')
+
+# ------------------------------------------------------------------------------
+# Utilities
+# ------------------------------------------------------------------------------
+
+BUCKET = 'ml-pipelines-2018'
+MONGO_CONFIG_FILE = 'mongodb_config.json'
+
+
+def get_explorer():
+    try:
+        db = mit_d3m.db.get_db(config=MONGO_CONFIG_FILE)
+        return MongoPipelineExplorer(db)
+    except Exception:
+        return S3PipelineExplorer(BUCKET)
+
+
+# Source: https://stackoverflow.com/a/30316760
+# Custom objects know their class.
+# Function objects seem to know way too much, including modules.
+# Exclude modules as well.
+BLACKLIST = type, ModuleType, FunctionType
+
+
+def getsize(obj):
+    """sum size of object & members."""
+    if isinstance(obj, BLACKLIST):
+        raise TypeError(
+            'getsize() does not take argument of type: ' + str(type(obj)))
+    seen_ids = set()
+    size = 0
+    objects = [obj]
+    while objects:
+        need_referents = []
+        for obj in objects:
+            if not isinstance(obj, BLACKLIST) and id(obj) not in seen_ids:
+                seen_ids.add(id(obj))
+                size += sys.getsizeof(obj)
+                need_referents.append(obj)
+        objects = get_referents(*need_referents)
+    return size
+
+
+@fy.decorator
+def quiet(call):
+    with open(devnull, 'w') as fnull:
+        with redirect_stderr(fnull), redirect_stdout(fnull):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                return call()
+
+
+# Source: https://stackoverflow.com/a/1094933
+def sizeof_fmt(num, suffix='B'):
+    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
 # ------------------------------------------------------------------------------
@@ -51,14 +113,14 @@ def _assert_filters(df):
 
 
 def _clear_cache():
-    path = datadir.joinpath('cache')
+    path = DATA_DIR.joinpath('cache')
     shutil.rmtree(path)
 
 
-@funcy.memoize
+@fy.memoize
 def _load_pipelines_df(force_download=False):
     """Get all pipelines, passing the analysis-specific test_id filter"""
-    path = datadir.joinpath('cache', 'pipelines.pkl.gz')
+    path = DATA_DIR.joinpath('cache', 'pipelines.pkl.gz')
     if force_download or not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         filters = _get_filters()
@@ -72,9 +134,9 @@ def _load_pipelines_df(force_download=False):
     return df
 
 
-@funcy.memoize
+@fy.memoize
 def _load_baselines_df():
-    df = pd.read_table(datadir.joinpath('baselines.tsv'))
+    df = pd.read_table(DATA_DIR.joinpath('baselines.tsv'))
     df['problem'] = df['problem'].str.replace('_problem', '')
     df = df.set_index('problem')
     _add_tscores(df, score_name='baselinescore')
@@ -90,7 +152,7 @@ def _get_best_pipeline(problem):
 # Saving results
 # ------------------------------------------------------------------------------
 
-def _savefig(fig, name, figdir=outputdir):
+def _savefig(fig, name, figdir=OUTPUT_DIR):
     figdir = pathlib.Path(figdir)
     for ext in ['.png', '.pdf', '.eps']:
         fig.savefig(figdir.joinpath(name+ext),
@@ -126,7 +188,7 @@ def _make_normalizer(metric_type, min=None, max=None):
         f = SCORE_MAPPING[metric_type]
     except KeyError:
         raise ValueError('Unknown metric type: {}'.format(metric_type))
-    return funcy.rpartial(f, min, max)
+    return fy.rpartial(f, min, max)
 
 
 def _normalize_df(df, score_name='cv_score'):
@@ -139,7 +201,7 @@ def _add_tscores(df, score_name='score'):
         df['t-score'] = df.apply(_normalize_df, score_name=score_name, axis=1)
 
 
-@funcy.memoize
+@fy.memoize
 def _get_tuning_results_df():
     df = _load_pipelines_df()
 
@@ -204,7 +266,7 @@ def _get_tuning_results_df():
     return data
 
 
-@funcy.memoize
+@fy.memoize
 def _get_test_results_df():
     filters = _get_filters()
     results_df = ex.get_test_results(**filters)
@@ -212,7 +274,7 @@ def _get_test_results_df():
     return results_df
 
 
-@funcy.memoize
+@fy.memoize
 def _get_datasets_df():
     df = ex.get_datasets()
     df['dataset_id'] = df['dataset'].apply(
@@ -249,8 +311,8 @@ def make_table_2():
         .sort_index()
     )
 
-    result.to_csv(outputdir.joinpath('table2.csv'))
-    result.to_latex(outputdir.joinpath('table2.tex'))
+    result.to_csv(OUTPUT_DIR.joinpath('table2.csv'))
+    result.to_latex(OUTPUT_DIR.joinpath('table2.tex'))
     return result
 
 
@@ -303,15 +365,15 @@ def make_figure_6():
         ax.get_legend().remove()
 
         # color patches
-        for (_, b2) in funcy.partition(2, 2, sorted(ax.patches, key=lambda
+        for (_, b2) in fy.partition(2, 2, sorted(ax.patches, key=lambda
                 o: o.get_x())):
             b2.set_hatch('////')
 
-        _savefig(fig, 'figure6', figdir=outputdir)
+        _savefig(fig, 'figure6', figdir=OUTPUT_DIR)
         if not interactive:
             plt.close(fig)
 
-    fn = outputdir.joinpath('figure6.csv')
+    fn = OUTPUT_DIR.joinpath('figure6.csv')
     data.to_csv(fn)
 
     # Compute performance vs human baseline (Section 5.3)
@@ -323,7 +385,7 @@ def make_figure_6():
         .agg(['mean', 'std'])
     )
 
-    fn = outputdir.joinpath('V_B_performance_vs_baseline.csv')
+    fn = OUTPUT_DIR.joinpath('V_B_performance_vs_baseline.csv')
     result.to_csv(fn)
 
 
@@ -345,7 +407,7 @@ def make_figure_7():
         sns.despine(left=True, bottom=True)
         plt.tight_layout()
 
-        _savefig(fig, 'figure7', figdir=outputdir)
+        _savefig(fig, 'figure7', figdir=OUTPUT_DIR)
         if not interactive:
             plt.close(fig)
 
@@ -357,7 +419,7 @@ def compute_total_pipelines():
     n_pipelines = df.shape[0]
     result = '{} total pipelines evaluated' .format(n_pipelines)
 
-    fn = outputdir.joinpath('total_pipelines.txt')
+    fn = OUTPUT_DIR.joinpath('total_pipelines.txt')
     with fn.open('w') as f:
         f.write(result)
 
@@ -379,7 +441,7 @@ def compute_pipelines_second_VI():
     total_seconds_elapsed = test_results_final['elapsed'].sum()
     result = n_pipelines / total_seconds_elapsed
 
-    fn = outputdir.joinpath('VI_pipelines_second.txt')
+    fn = OUTPUT_DIR.joinpath('VI_pipelines_second.txt')
     with fn.open('w') as f:
         f.write('{} pipelines/second'.format(result))
 
@@ -398,7 +460,7 @@ def compute_tuning_improvement_sds_VI_A():
     delta = data['delta'].dropna()
     result = delta.mean()
 
-    fn = outputdir.joinpath('VI_A_tuning_improvement_sds.txt')
+    fn = OUTPUT_DIR.joinpath('VI_A_tuning_improvement_sds.txt')
     with fn.open('w') as f:
         f.write(
             '{} standard deviations of improvement during tuning'
@@ -413,7 +475,7 @@ def compute_tuning_improvement_pct_of_tasks_VI_A():
     delta = data['delta'].dropna()
     result = 100 * (delta > 1.0).mean()
 
-    fn = outputdir.joinpath('VI_A_tuning_improvement_pct_of_tasks.txt')
+    fn = OUTPUT_DIR.joinpath('VI_A_tuning_improvement_pct_of_tasks.txt')
     with fn.open('w') as f:
         f.write(
             '{:.2f}% of tasks improve by >1 standard deviation'
@@ -434,7 +496,7 @@ def compute_npipelines_xgbrf_VI_B():
         columns=['pipelines']
     )
 
-    fn = outputdir.joinpath('VI_B_npipelines_xgbrf.csv')
+    fn = OUTPUT_DIR.joinpath('VI_B_npipelines_xgbrf.csv')
     result.to_csv(fn)
 
     return result
@@ -475,7 +537,7 @@ def compute_xgb_wins_pct_VI_B():
     # add total
     result.loc(axis=0)['total'] = result.sum()
 
-    fn = outputdir.joinpath('VI_B_xgb_wins_pct.csv')
+    fn = OUTPUT_DIR.joinpath('VI_B_xgb_wins_pct.csv')
     result.to_csv(fn)
 
     return result
@@ -507,7 +569,7 @@ def compute_npipelines_maternse_VI_C():
         columns=['pipelines']
     )
 
-    fn = outputdir.joinpath('VI_C_npipelines_sematern52.csv')
+    fn = OUTPUT_DIR.joinpath('VI_C_npipelines_sematern52.csv')
     result.to_csv(fn)
 
     return result
@@ -552,7 +614,7 @@ def compute_matern_wins_pct_VI_C():
     # add total
     result.loc(axis=0)['total'] = result.sum()
 
-    fn = outputdir.joinpath('VI_C_matern_wins_pct.csv')
+    fn = OUTPUT_DIR.joinpath('VI_C_matern_wins_pct.csv')
     result.to_csv(fn)
 
     return result
