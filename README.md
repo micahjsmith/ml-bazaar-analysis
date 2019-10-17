@@ -1,4 +1,4 @@
-# ml-bazaar-2019
+# ml-bazaar-analysis
 
 Replication files for The Machine Learning Bazaar (Smith, Sala, Kanter, and Veeramachaneni, 2019)
 
