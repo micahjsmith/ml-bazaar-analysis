@@ -27,7 +27,6 @@ from piex.explorer import MongoPipelineExplorer, S3PipelineExplorer
 warnings.simplefilter('ignore', SettingWithCopyWarning)
 warnings.simplefilter('ignore', FutureWarning)
 
-ex = get_explorer()
 interactive = True
 
 sns.set(context='paper', style='white', font='serif')
@@ -50,6 +49,9 @@ def get_explorer():
         return MongoPipelineExplorer(db)
     except Exception:
         return S3PipelineExplorer(BUCKET)
+
+
+ex = get_explorer()
 
 
 # Source: https://stackoverflow.com/a/30316760
