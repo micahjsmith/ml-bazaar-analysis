@@ -93,7 +93,7 @@ pelican==4.0.1
 pexpect==4.6.0
 pickleshare==0.7.5
 piex @ git+https://git@github.com/HDI-Project/piex@6e3c4069ff8ef82bf242b81746a78d6cbaf31c33
-Pillow==6.0.0
+Pillow==6.2.0
 ply==3.11
 poyo==0.4.2
 prometheus-client==0.6.0
