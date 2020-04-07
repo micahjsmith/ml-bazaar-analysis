@@ -5,7 +5,6 @@ WORKDIR /work
 
 COPY ./requirements.txt .
 RUN pip install -r requirements.txt
-COPY ./explorer.py .
 COPY ./analysis.py .
 
 COPY ./mongodb_config.json .

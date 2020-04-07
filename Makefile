@@ -1,7 +1,8 @@
 .DEFAULT_GOAL := main
 
 IMAGE_NAME := mlbazaar2019
-EXPLORE_NAME := mlbazaar2019_explore
+HOST_PORT := 8888
+CONTAINER_PORT := 8888
 
 help:
 	@echo "Usage:"
@@ -28,12 +29,15 @@ main: install build
 
 explore: install build
 	docker run \
+	    --rm \
 	    -i \
 	    --tty \
 	    --mount "type=bind,src=$(shell pwd)/output/,dst=/work/output/" \
 	    --mount "type=bind,src=$(shell pwd)/data/,dst=/work/data/" \
-	    -p 8888:8888 \
-	    $(EXPLORE_NAME)
+	    --mount "type=bind,src=$(shell pwd)/notebooks/,dst=/work/notebooks/" \
+	    -p $(HOST_PORT):$(CONTAINER_PORT) \
+	    $(IMAGE_NAME) \
+	    jupyter lab --ip=0.0.0.0 --port=$(CONTAINER_PORT) --allow-root --no-browser --LabApp.token=
 
 clean:
 	docker rm -f $(shell docker ps -a -q --filter ancestor=$(IMAGE_NAME)) 2>/dev/null || true
