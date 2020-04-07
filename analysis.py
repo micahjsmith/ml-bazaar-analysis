@@ -16,6 +16,7 @@ from os import devnull
 from types import FunctionType, ModuleType
 
 import funcy as fy
+import matplotlib
 import matplotlib.pyplot as plt
 import mit_d3m.db
 import numpy as np
@@ -29,11 +30,15 @@ warnings.simplefilter('ignore', FutureWarning)
 
 interactive = True
 
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 sns.set(context='paper', style='white', font='serif')
 
 ROOT = pathlib.Path(__file__).parent.resolve()
 OUTPUT_DIR = ROOT.joinpath('output')
 DATA_DIR = ROOT.joinpath('data')
+
+very_dark_gray = 'dimgray'
 
 # ------------------------------------------------------------------------------
 # Utilities
