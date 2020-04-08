@@ -323,6 +323,54 @@ def make_table_2():
     return result
 
 
+def _load_execution_times_df():
+    df = pd.read_csv(DATA_DIR.joinpath('execution_times.tsv'), sep='\t')
+    df = df.set_index('dataset')
+    return df
+
+
+def make_figure_4():
+    df = _load_execution_times_df()
+
+    # normalize data.
+    df['total'] = df['abz_time']
+    df['mlblocks_time'] = df['mlblocks_time'] - df['primitives_time']
+    df['btb_time'] = df['btb_time'] - df['btb_gp_time']
+    df['abz_time'] = df.eval(
+        'total - mlblocks_time - primitives_time - btb_time - btb_gp_time - io_time')
+    df = df.apply(lambda row: row / row['total'] * 100, axis=1)
+    df = df[['abz_time', 'io_time', 'mlblocks_time', 'primitives_time',
+             'btb_time', 'btb_gp_time']]
+
+    fn = OUTPUT_DIR.joinpath('execution_time.csv')
+    df.to_csv(fn)
+
+    data = (df
+            .stack()
+            .to_frame()
+            .reset_index()
+            .rename(columns={'level_1': 'time_type', 0: 'time'}))
+
+    with sns.plotting_context('paper'):
+        fig, ax = plt.subplots(figsize=(6, 2.5))
+        sns.boxplot(x='time_type', y='time', data=data, ax=ax)
+        plt.xlabel('')
+        plt.ylabel('Execution time (% of total)')
+        ax.set_xticklabels(['ABZ', 'I/O', 'MLB', 'MLB Ext.', 'BTB', 'BTB Ext.'])
+        ax.set_ylim([0, 100])
+        sns.despine(left=True, bottom=True)
+
+        _savefig(fig, 'execution_time', figdir=OUTPUT_DIR)
+        if not interactive:
+            plt.close(fig)
+
+    summary = data.groupby('time_type').describe()
+    fn = OUTPUT_DIR.joinpath('execution_time_summary.csv')
+    summary.to_csv(fn)
+
+    return summary
+
+
 def make_figure_6():
     baselines_df = _load_baselines_df()
 

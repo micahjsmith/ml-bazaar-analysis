@@ -16,10 +16,9 @@ install:
 
 build:
 	docker build -t $(IMAGE_NAME) .
-	docker build -t $(EXPLORE_NAME) -f Dockerfile-explore .
 	mkdir -p ./output
 
-main: install build
+main:   # install build
 	docker run \
 	    --rm \
 	    --tty \
@@ -27,7 +26,7 @@ main: install build
 	    --mount "type=bind,src=$(shell pwd)/data/,dst=/work/data/" \
 	    $(IMAGE_NAME)
 
-explore: install build
+explore:   # install build
 	docker run \
 	    --rm \
 	    -i \
