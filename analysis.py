@@ -169,6 +169,7 @@ def _savefig(fig, name, figdir=OUTPUT_DIR):
 # Preprocessing
 # ------------------------------------------------------------------------------
 
+
 _METRIC_TYPES = {
     'f1': 'zero_one_score',
     'f1Macro': 'zero_one_score',
@@ -189,6 +190,7 @@ SCORE_MAPPING = {
     'zero_inf_cost': lambda x, min, max: 1 - 1 / (1 + np.exp(-np.log10(
         x))),
 }
+
 
 def _make_normalizer(metric_type, min=None, max=None):
     try:
@@ -289,11 +291,17 @@ def _get_datasets_df():
     return df
 
 
+def _load_execution_times_df():
+    df = pd.read_csv(DATA_DIR.joinpath('execution_times.tsv'), sep='\t')
+    df = df.set_index('dataset')
+    return df
+
+
 # ------------------------------------------------------------------------------
 # Run experiments
 # ------------------------------------------------------------------------------
 
-def make_table_2():
+def make_table_4():
     df = _load_pipelines_df()
     datasets = df['dataset'].unique()
 
@@ -318,15 +326,9 @@ def make_table_2():
         .sort_index()
     )
 
-    result.to_csv(OUTPUT_DIR.joinpath('table2.csv'))
-    result.to_latex(OUTPUT_DIR.joinpath('table2.tex'))
+    result.to_csv(OUTPUT_DIR.joinpath('table4.csv'))
+    result.to_latex(OUTPUT_DIR.joinpath('table4.tex'))
     return result
-
-
-def _load_execution_times_df():
-    df = pd.read_csv(DATA_DIR.joinpath('execution_times.tsv'), sep='\t')
-    df = df.set_index('dataset')
-    return df
 
 
 def make_figure_4():
@@ -337,7 +339,8 @@ def make_figure_4():
     df['mlblocks_time'] = df['mlblocks_time'] - df['primitives_time']
     df['btb_time'] = df['btb_time'] - df['btb_gp_time']
     df['abz_time'] = df.eval(
-        'total - mlblocks_time - primitives_time - btb_time - btb_gp_time - io_time')
+        '-'.join(['total', 'mlblocks_time', 'primitives_time', 'btb_time',
+                 'btb_gp_time', 'io_time']))
     df = df.apply(lambda row: row / row['total'] * 100, axis=1)
     df = df[['abz_time', 'io_time', 'mlblocks_time', 'primitives_time',
              'btb_time', 'btb_gp_time']]
@@ -356,11 +359,12 @@ def make_figure_4():
         sns.boxplot(x='time_type', y='time', data=data, ax=ax)
         plt.xlabel('')
         plt.ylabel('Execution time (% of total)')
-        ax.set_xticklabels(['ABZ', 'I/O', 'MLB', 'MLB Ext.', 'BTB', 'BTB Ext.'])
+        ax.set_xticklabels(
+            ['ABZ', 'I/O', 'MLB', 'MLB Ext.', 'BTB', 'BTB Ext.'])
         ax.set_ylim([0, 100])
         sns.despine(left=True, bottom=True)
 
-        _savefig(fig, 'execution_time', figdir=OUTPUT_DIR)
+        _savefig(fig, 'figure4', figdir=OUTPUT_DIR)
         if not interactive:
             plt.close(fig)
 
@@ -371,7 +375,7 @@ def make_figure_4():
     return summary
 
 
-def make_figure_6():
+def make_figure_x():
     baselines_df = _load_baselines_df()
 
     problems = list(baselines_df.index)
@@ -420,15 +424,16 @@ def make_figure_6():
         ax.get_legend().remove()
 
         # color patches
-        for (_, b2) in fy.partition(2, 2, sorted(ax.patches, key=lambda
-                o: o.get_x())):
+        for (_, b2) in fy.partition(
+            2, 2, sorted(ax.patches, key=lambda o: o.get_x())
+        ):
             b2.set_hatch('////')
 
         _savefig(fig, 'figure6', figdir=OUTPUT_DIR)
         if not interactive:
             plt.close(fig)
 
-    fn = OUTPUT_DIR.joinpath('figure6.csv')
+    fn = OUTPUT_DIR.joinpath('figurex.csv')
     data.to_csv(fn)
 
     # Compute performance vs human baseline (Section 5.3)
@@ -440,12 +445,11 @@ def make_figure_6():
         .agg(['mean', 'std'])
     )
 
-    fn = OUTPUT_DIR.joinpath('V_B_performance_vs_baseline.csv')
+    fn = OUTPUT_DIR.joinpath('performance_vs_baseline.csv')
     result.to_csv(fn)
 
 
-
-def make_figure_7():
+def make_figure_5():
     data = _get_tuning_results_df()
     delta = data['delta'].dropna()
 
@@ -462,7 +466,7 @@ def make_figure_7():
         sns.despine(left=True, bottom=True)
         plt.tight_layout()
 
-        _savefig(fig, 'figure7', figdir=OUTPUT_DIR)
+        _savefig(fig, 'figure5', figdir=OUTPUT_DIR)
         if not interactive:
             plt.close(fig)
 
@@ -481,7 +485,7 @@ def compute_total_pipelines():
     return result
 
 
-def compute_pipelines_second_VI():
+def compute_pipelines_second():
     test_results = _get_test_results_df()
     test_results_final = (
         test_results
@@ -496,26 +500,26 @@ def compute_pipelines_second_VI():
     total_seconds_elapsed = test_results_final['elapsed'].sum()
     result = n_pipelines / total_seconds_elapsed
 
-    fn = OUTPUT_DIR.joinpath('VI_pipelines_second.txt')
+    fn = OUTPUT_DIR.joinpath('pipelines_second.txt')
     with fn.open('w') as f:
         f.write('{} pipelines/second'.format(result))
 
     return result
 
 
-def compute_performance_vs_baseline_V_B():
+def compute_performance_vs_baseline():
     """Compute performance vs human baseline (Section V.B)"""
     # see make_figure_6 for implementation
     pass
 
 
-def compute_tuning_improvement_sds_VI_A():
+def compute_tuning_improvement_sds_5_4():
     """Compute average improvement during tuning, in sds"""
     data = _get_tuning_results_df()
     delta = data['delta'].dropna()
     result = delta.mean()
 
-    fn = OUTPUT_DIR.joinpath('VI_A_tuning_improvement_sds.txt')
+    fn = OUTPUT_DIR.joinpath('5_4_tuning_improvement_sds.txt')
     with fn.open('w') as f:
         f.write(
             '{} standard deviations of improvement during tuning'
@@ -524,13 +528,13 @@ def compute_tuning_improvement_sds_VI_A():
     return result
 
 
-def compute_tuning_improvement_pct_of_tasks_VI_A():
+def compute_tuning_improvement_pct_of_tasks_5_4():
     """Compute pct of tasks that improve by >1sd during tuning"""
     data = _get_tuning_results_df()
     delta = data['delta'].dropna()
     result = 100 * (delta > 1.0).mean()
 
-    fn = OUTPUT_DIR.joinpath('VI_A_tuning_improvement_pct_of_tasks.txt')
+    fn = OUTPUT_DIR.joinpath('5_4_tuning_improvement_pct_of_tasks.txt')
     with fn.open('w') as f:
         f.write(
             '{:.2f}% of tasks improve by >1 standard deviation'
@@ -539,7 +543,7 @@ def compute_tuning_improvement_pct_of_tasks_VI_A():
     return result
 
 
-def compute_npipelines_xgbrf_VI_B():
+def compute_npipelines_xgbrf_5_6():
     """Compute the total number of XGB/RF pipelines evaluated"""
     df = _load_pipelines_df()
     npipelines_rf = np.sum(df['pipeline'].str.contains('random_forest'))
@@ -551,19 +555,24 @@ def compute_npipelines_xgbrf_VI_B():
         columns=['pipelines']
     )
 
-    fn = OUTPUT_DIR.joinpath('VI_B_npipelines_xgbrf.csv')
+    fn = OUTPUT_DIR.joinpath('5_6_npipelines_xgbrf.csv')
     result.to_csv(fn)
 
     return result
 
 
-def compute_xgb_wins_pct_VI_B():
+def compute_xgb_wins_pct_5_6():
     """Compute the pct of tasks for which XGB pipelines beat RF pipelines"""
     test_results_df = _get_test_results_df()
 
     rf_results_df = (
         test_results_df
-        [lambda _df: _df['pipeline'].str.contains('random_forest').fillna(False)]
+        [lambda _df: (
+            _df['pipeline']
+            .str
+            .contains('random_forest')
+            .fillna(False)
+        )]
         .groupby('dataset')
         ['t-score']
         .max()
@@ -592,13 +601,13 @@ def compute_xgb_wins_pct_VI_B():
     # add total
     result.loc(axis=0)['total'] = result.sum()
 
-    fn = OUTPUT_DIR.joinpath('VI_B_xgb_wins_pct.csv')
+    fn = OUTPUT_DIR.joinpath('5_6_xgb_wins_pct.csv')
     result.to_csv(fn)
 
     return result
 
 
-def compute_npipelines_maternse_VI_C():
+def compute_npipelines_maternse_5_7():
     """Compute the total number of Matern-EI/SE-EI pipelines evaluated"""
     pipelines_df = _load_pipelines_df()
     test_results_df = _get_test_results_df()
@@ -624,13 +633,13 @@ def compute_npipelines_maternse_VI_C():
         columns=['pipelines']
     )
 
-    fn = OUTPUT_DIR.joinpath('VI_C_npipelines_sematern52.csv')
+    fn = OUTPUT_DIR.joinpath('5_7_npipelines_sematern52.csv')
     result.to_csv(fn)
 
     return result
 
 
-def compute_matern_wins_pct_VI_C():
+def compute_matern_wins_pct_5_7():
     """Compute matern wins pct
 
     Compute the pct of tasks for which the best pipeline as tuned by
@@ -649,7 +658,12 @@ def compute_matern_wins_pct_VI_C():
 
     gp_matern52_ei_results_df = (
         test_results_df
-        [lambda _df: _df['tuner_type'].str.contains('gpmatern52ei').fillna(False)]
+        [lambda _df: (
+            _df['tuner_type']
+            .str
+            .contains('gpmatern52ei')
+            .fillna(False)
+        )]
         .groupby('dataset')
         ['t-score']
         .max()
@@ -669,7 +683,7 @@ def compute_matern_wins_pct_VI_C():
     # add total
     result.loc(axis=0)['total'] = result.sum()
 
-    fn = OUTPUT_DIR.joinpath('VI_C_matern_wins_pct.csv')
+    fn = OUTPUT_DIR.joinpath('5_7_matern_wins_pct.csv')
     result.to_csv(fn)
 
     return result
