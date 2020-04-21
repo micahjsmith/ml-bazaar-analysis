@@ -18,6 +18,7 @@ from gc import get_referents
 from os import devnull
 from types import FunctionType, ModuleType
 
+import botocore.client
 import funcy as fy
 import matplotlib
 import matplotlib.pyplot as plt
@@ -48,7 +49,7 @@ very_dark_gray = 'dimgray'
 # ------------------------------------------------------------------------------
 
 BUCKET = 'ml-pipelines-2018'
-MONGO_CONFIG_FILE = 'mongodb_config.json'
+MONGO_CONFIG_FILE = str(ROOT.joinpath('mongodb_config.json'))
 
 
 def get_explorer():
@@ -402,7 +403,10 @@ def _load_execution_times_df():
 def _load_task_characteristics_df():
     path = DATA_DIR.joinpath('cache', 'raw_task_characteristics.tsv')
     if not os.path.exists(path):
-        records = create_all_records()
+        try:
+            records = create_all_records()
+        except botocore.client.ClientError:
+            raise RuntimeError('task suite not currently accessible') from None
         df = pd.DataFrame.from_records(records)
         df.to_csv(path, sep='\t')
 
@@ -843,6 +847,8 @@ def main():
     """Call all of the results generating functions defined here"""
     this = sys.modules[__name__]
     names = set(dir(this)) - {'main'}
+    print(f'DATA_DIR is {DATA_DIR}')
+    print(f'OUTPUT_DIR is {OUTPUT_DIR}')
     for name in sorted(names):
         if name.startswith('make_') or name.startswith('compute_'):
             obj = getattr(this, name)
