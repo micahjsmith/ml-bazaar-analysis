@@ -14,11 +14,11 @@ help:
 install:
 	@command -v docker || { echo "Could not find docker executable, please install it: https://docs.docker.com/install/"; exit 1; }
 
-build:
+build: install
 	docker build -t $(IMAGE_NAME) .
 	mkdir -p ./output
 
-main:   # install build
+main: build
 	docker run \
 	    --rm \
 	    --tty \
@@ -26,7 +26,7 @@ main:   # install build
 	    --mount "type=bind,src=$(shell pwd)/data/,dst=/work/data/" \
 	    $(IMAGE_NAME)
 
-explore:   # install build
+explore: build
 	docker run \
 	    --rm \
 	    -i \
@@ -39,7 +39,7 @@ explore:   # install build
 	    jupyter lab --ip=0.0.0.0 --port=$(CONTAINER_PORT) --allow-root --no-browser --LabApp.token=
 
 clean:
-	docker rm -f $(shell docker ps -a -q --filter ancestor=$(IMAGE_NAME)) 2>/dev/null || true
+	-docker rm -f $(shell docker ps -a -q --filter ancestor=$(IMAGE_NAME)) 2>/dev/null
 	rm -rf ./output
 	rm -rf ./data/cache
 	rm -rf ./__pycache__

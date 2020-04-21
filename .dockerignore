@@ -1,0 +1,6 @@
+.git/
+data/cache
+output/
+
+notebooks/
+**/__pycache__/

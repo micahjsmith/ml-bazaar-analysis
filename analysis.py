@@ -5,9 +5,12 @@ Generate the figures and results for the paper: "The Machine Learning Bazaar:
 Harnessing the ML Ecosystem for Effective System Development"
 """
 
+import json
+import os.path
 import pathlib
 import shutil
 import sys
+import traceback
 import types
 import warnings
 from contextlib import redirect_stderr, redirect_stdout
@@ -22,13 +25,13 @@ import mit_d3m.db
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from mit_d3m import download_dataset, load_dataset
 from pandas.core.common import SettingWithCopyWarning
 from piex.explorer import MongoPipelineExplorer, S3PipelineExplorer
+from tqdm import tqdm
 
 warnings.simplefilter('ignore', SettingWithCopyWarning)
 warnings.simplefilter('ignore', FutureWarning)
-
-interactive = True
 
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
@@ -153,6 +156,105 @@ def _load_baselines_df():
 def _get_best_pipeline(problem):
     filters = _get_filters()
     return ex.get_best_pipeline(problem, **filters)
+
+
+def get_disk_usage_compressed(dataset_id):
+    path = os.path.join(DATA_DIR, f'{dataset_id}.tar.gz')
+    return os.path.getsize(path)
+
+
+def get_disk_usage_inflated(dataset_id):
+    start_path = os.path.join(DATA_DIR, dataset_id)
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(start_path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            # skip if it is symbolic link
+            if not os.path.islink(fp):
+                total_size += os.path.getsize(fp)
+
+    return total_size
+
+
+class jsoncached:
+
+    def __init__(self, cache_dir):
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+
+    def get_record_path(self, dataset_id):
+        return self.cache_dir.joinpath(f'{dataset_id}.json')
+
+    def save_record(self, dataset_id, record):
+        path = self.get_record_path(dataset_id)
+        with open(path, 'w') as f:
+            json.dump(record, f)
+
+    def load_record(self, dataset_id):
+        path = self.get_record_path(dataset_id)
+        with open(path, 'r') as f:
+            return json.load(f)
+
+    def exists_record(self, dataset_id):
+        path = self.get_record_path(dataset_id)
+        return os.path.exists(path)
+
+    def __call__(self, func):
+
+        @fy.wraps(func)
+        def wrapped(dataset_id):
+            if self.exists_record(dataset_id):
+                return self.load_record(dataset_id)
+            else:
+                record = func(dataset_id)
+                self.save_record(dataset_id, record)
+                return record
+
+        return wrapped
+
+
+@jsoncached(DATA_DIR.joinpath('cache', 'records'))
+def create_record(dataset_id):
+    download_dataset(BUCKET, dataset_id, str(DATA_DIR))
+
+    # on-disk
+    du_compressed = get_disk_usage_compressed(dataset_id)
+    du_inflated = get_disk_usage_inflated(dataset_id)
+
+    # in-memory
+    dataset = load_dataset(dataset_id)
+    if dataset is None:
+        print(f'Failed to process dataset {dataset_id}')
+
+    size = getsize(dataset)
+    n = len(dataset.y)
+    m = dataset.X.shape[1]
+    classes = len(np.unique(dataset.y))
+    del dataset
+
+    record = {
+        'dataset_id': dataset_id,
+        'size': size,
+        'n': n,
+        'm': m,
+        'classes': classes,
+        'du_compressed': du_compressed,
+        'du_inflated': du_inflated,
+    }
+
+    return record
+
+
+@fy.collecting
+def create_all_records(process_big=False):
+    dataset_id_list = ex.get_datasets()['dataset'].tolist()
+    biglist = ['124_153_svhn_cropped', '31_urbansound',
+               'bone_image_classification', 'bone_image_collection']
+    if not process_big:
+        dataset_id_list = [l for l in dataset_id_list if l not in biglist]
+
+    for dataset_id in tqdm(dataset_id_list):
+        yield create_record(dataset_id)
 
 
 # ------------------------------------------------------------------------------
@@ -297,9 +399,63 @@ def _load_execution_times_df():
     return df
 
 
+def _load_task_characteristics_df():
+    path = DATA_DIR.joinpath('cache', 'raw_task_characteristics.tsv')
+    if not os.path.exists(path):
+        records = create_all_records()
+        df = pd.DataFrame.from_records(records)
+        df.to_csv(path, sep='\t')
+
+    return pd.read_csv(path, sep='\t')
+
+
 # ------------------------------------------------------------------------------
 # Run experiments
 # ------------------------------------------------------------------------------
+
+def make_table_3():
+    df = _load_task_characteristics_df()
+    df = df[['dataset_id', 'n', 'm', 'classes',
+             'du_compressed', 'du_inflated', 'size']]
+
+    df = df.rename(columns={
+        'size': f'Size (memory)',
+        'du_compressed': 'Size (compressed)',
+        'du_inflated': 'Size (inflated)',
+        'n': 'Number of examples',
+        'm': 'Columns of $X$',
+        'classes': 'Number of classes',
+    })
+
+    # set number of classes to nan for non-classification datasets
+    tmp = ex.get_datasets()
+    msk = tmp['task_type'] == 'classification'
+    cls_ids = tmp[msk]
+    cls_ids = cls_ids['dataset'].tolist()
+    df.loc[~df['dataset_id'].isin(cls_ids), 'Number of classes'] = np.nan
+
+    summary = df.describe()
+
+    # reorder columns
+    summary = summary[['Number of examples',
+                       'Number of classes',
+                       'Columns of $X$',
+                       'Size (compressed)',
+                       'Size (uncompressed)']]
+
+    # produce percentiles
+    summary = summary.T
+    summary = summary[['min', '25%', '50%', '75%', 'max']]
+    summary = summary.rename(
+        columns={'25%': 'p25', '50%': 'p50', '75%': 'p75'})
+    size_cols = ['Size (compressed)', 'Size (uncompressed)']
+    summary.loc[size_cols] = summary.loc[size_cols].applymap(sizeof_fmt)
+    summary.to_csv(OUTPUT_DIR.joinpath('task_characteristics.csv'))
+    summary.to_latex(OUTPUT_DIR.joinpath('task_characteristics.tex'),
+                     float_format="{:0.1f}".format)
+
+    return summary
+
 
 def make_table_4():
     df = _load_pipelines_df()
@@ -365,8 +521,6 @@ def make_figure_4():
         sns.despine(left=True, bottom=True)
 
         _savefig(fig, 'figure4', figdir=OUTPUT_DIR)
-        if not interactive:
-            plt.close(fig)
 
     summary = data.groupby('time_type').describe()
     fn = OUTPUT_DIR.joinpath('execution_time_summary.csv')
@@ -430,8 +584,6 @@ def make_figure_x():
             b2.set_hatch('////')
 
         _savefig(fig, 'figure6', figdir=OUTPUT_DIR)
-        if not interactive:
-            plt.close(fig)
 
     fn = OUTPUT_DIR.joinpath('figurex.csv')
     data.to_csv(fn)
@@ -467,8 +619,6 @@ def make_figure_5():
         plt.tight_layout()
 
         _savefig(fig, 'figure5', figdir=OUTPUT_DIR)
-        if not interactive:
-            plt.close(fig)
 
     return data
 
@@ -697,12 +847,17 @@ def main():
         if name.startswith('make_') or name.startswith('compute_'):
             obj = getattr(this, name)
             if isinstance(obj, types.FunctionType):
-                print('Calling {}...'.format(name))
-                obj()
-
-    print('Done.')
+                try:
+                    print(f'Calling {name}...')
+                    obj()
+                except Exception:
+                    print(f'Calling {name}...FAILED')
+                    traceback.print_exc()
+                    continue
+                else:
+                    print(f'Calling {name}...DONE')
 
 
 if __name__ == '__main__':
-    interactive = False
+    plt.ioff()  # plots are not interactive
     main()

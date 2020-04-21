@@ -110,6 +110,8 @@ pylint==2.3.1
 pymongo==3.8.0
 pyOpenSSL==18.0.0
 pyparsing==2.3.1
+PyQt5==5.14.2
+PyQt5-sip==12.7.2
 pyrsistent==0.14.11
 PySocks==1.6.8
 python-dateutil==2.7.5
@@ -120,7 +122,7 @@ PyYAML==5.1
 pyzmq==18.0.1
 qtconsole==4.4.3
 requests==2.21.0
-ruamel-yaml==0.15.46
+ruamel.yaml==0.15.46
 s3fs==0.2.1
 s3transfer==0.1.13
 scikit-image==0.15.0
