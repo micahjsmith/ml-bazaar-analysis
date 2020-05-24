@@ -246,7 +246,7 @@ def create_record(dataset_id):
 
 
 @fy.collecting
-def create_all_records(process_big=False):
+def create_all_records(process_big=True):
     dataset_id_list = ex.get_datasets()['dataset'].tolist()
     biglist = ['124_153_svhn_cropped', '31_urbansound',
                'bone_image_classification', 'bone_image_collection']
@@ -401,7 +401,7 @@ def _load_execution_times_df():
 
 
 def _load_task_characteristics_df():
-    path = DATA_DIR.joinpath('cache', 'raw_task_characteristics.tsv')
+    path = DATA_DIR.joinpath('raw_task_characteristics.tsv')
     if not os.path.exists(path):
         try:
             records = create_all_records()
@@ -445,14 +445,14 @@ def make_table_3():
                        'Number of classes',
                        'Columns of $X$',
                        'Size (compressed)',
-                       'Size (uncompressed)']]
+                       'Size (inflated)']]
 
     # produce percentiles
     summary = summary.T
     summary = summary[['min', '25%', '50%', '75%', 'max']]
     summary = summary.rename(
         columns={'25%': 'p25', '50%': 'p50', '75%': 'p75'})
-    size_cols = ['Size (compressed)', 'Size (uncompressed)']
+    size_cols = ['Size (compressed)', 'Size (inflated)']
     summary.loc[size_cols] = summary.loc[size_cols].applymap(sizeof_fmt)
     summary.to_csv(OUTPUT_DIR.joinpath('task_characteristics.csv'))
     summary.to_latex(OUTPUT_DIR.joinpath('task_characteristics.tex'),
