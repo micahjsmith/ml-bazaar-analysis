@@ -4,6 +4,7 @@ USER root
 WORKDIR /work
 
 COPY ./requirements.txt .
+RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 COPY ./analysis.py .
 

@@ -26,7 +26,6 @@ import mit_d3m.db
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from mit_d3m import download_dataset, load_dataset
 from pandas.core.common import SettingWithCopyWarning
 from piex.explorer import MongoPipelineExplorer, S3PipelineExplorer
 from tqdm import tqdm
@@ -42,13 +41,14 @@ ROOT = pathlib.Path(__file__).parent.resolve()
 OUTPUT_DIR = ROOT.joinpath('output')
 DATA_DIR = ROOT.joinpath('data')
 
-very_dark_gray = 'dimgray'
+VERY_DARK_GRAY = 'dimgray'
 
 # ------------------------------------------------------------------------------
 # Utilities
 # ------------------------------------------------------------------------------
 
-BUCKET = 'ml-pipelines-2018'
+DATASETS_BUCKET = 'd3m-data-dai'
+PIPELINES_BUCKET = 'ml-pipelines-2018'
 MONGO_CONFIG_FILE = str(ROOT.joinpath('mongodb_config.json'))
 
 
@@ -57,7 +57,7 @@ def get_explorer():
         db = mit_d3m.db.get_db(config=MONGO_CONFIG_FILE)
         return MongoPipelineExplorer(db)
     except Exception:
-        return S3PipelineExplorer(BUCKET)
+        return S3PipelineExplorer(PIPELINES_BUCKET)
 
 
 ex = get_explorer()
@@ -167,7 +167,7 @@ def get_disk_usage_compressed(dataset_id):
 def get_disk_usage_inflated(dataset_id):
     start_path = os.path.join(DATA_DIR, dataset_id)
     total_size = 0
-    for dirpath, dirnames, filenames in os.walk(start_path):
+    for dirpath, _, filenames in os.walk(start_path):
         for f in filenames:
             fp = os.path.join(dirpath, f)
             # skip if it is symbolic link
@@ -216,22 +216,21 @@ class jsoncached:
 
 @jsoncached(DATA_DIR.joinpath('cache', 'records'))
 def create_record(dataset_id):
-    download_dataset(BUCKET, dataset_id, str(DATA_DIR))
-
-    # on-disk
-    du_compressed = get_disk_usage_compressed(dataset_id)
-    du_inflated = get_disk_usage_inflated(dataset_id)
-
     # in-memory
-    dataset = load_dataset(dataset_id)
+    dataset = mit_d3m.load_dataset(dataset_id)
     if dataset is None:
-        print(f'Failed to process dataset {dataset_id}')
+        raise RuntimeError(f'Failed to process dataset {dataset_id}')
 
     size = getsize(dataset)
     n = len(dataset.y)
     m = dataset.X.shape[1]
     classes = len(np.unique(dataset.y))
+
     del dataset
+
+    # on-disk
+    du_compressed = get_disk_usage_compressed(dataset_id)
+    du_inflated = get_disk_usage_inflated(dataset_id)
 
     record = {
         'dataset_id': dataset_id,
@@ -255,7 +254,8 @@ def create_all_records(process_big=False):
         dataset_id_list = [l for l in dataset_id_list if l not in biglist]
 
     for dataset_id in tqdm(dataset_id_list):
-        yield create_record(dataset_id)
+        with fy.suppress(Exception):
+            yield create_record(dataset_id)
 
 
 # ------------------------------------------------------------------------------
@@ -500,7 +500,7 @@ def make_figure_4():
     df['btb_time'] = df['btb_time'] - df['btb_gp_time']
     df['abz_time'] = df.eval(
         '-'.join(['total', 'mlblocks_time', 'primitives_time', 'btb_time',
-                 'btb_gp_time', 'io_time']))
+                  'btb_gp_time', 'io_time']))
     df = df.apply(lambda row: row / row['total'] * 100, axis=1)
     df = df[['abz_time', 'io_time', 'mlblocks_time', 'primitives_time',
              'btb_time', 'btb_gp_time']]
@@ -583,7 +583,7 @@ def make_figure_x():
 
         # color patches
         for (_, b2) in fy.partition(
-            2, 2, sorted(ax.patches, key=lambda o: o.get_x())
+                2, 2, sorted(ax.patches, key=lambda o: o.get_x())
         ):
             b2.set_hatch('////')
 
@@ -612,7 +612,7 @@ def make_figure_5():
     with sns.plotting_context('paper', font_scale=2.0):
         fig, ax = plt.subplots(figsize=(8, 3))
         sns.distplot(delta,
-                     hist_kws={'color': very_dark_gray},
+                     hist_kws={'color': VERY_DARK_GRAY},
                      kde_kws={'lw': 3})
 
         ax.set_xlabel('standard deviations')
